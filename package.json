@@ -1,0 +1,12 @@
+{
+  "name": "user-auth-function",
+  "version": "1.0.0",
+  "description": "User authentication and profile management",
+  "main": "src/index.js",
+  "dependencies": {
+    "node-appwrite": "^16.0.0"
+  },
+  "engines": {
+    "node": "22.x"
+  }
+}
