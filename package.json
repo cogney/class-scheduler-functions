@@ -2,7 +2,7 @@
   "name": "user-auth-function",
   "version": "1.0.0",
   "description": "User authentication and profile management",
-  "main": "src/index.js",
+  "main": "src/main.js",
   "dependencies": {
     "node-appwrite": "^16.0.0"
   },
