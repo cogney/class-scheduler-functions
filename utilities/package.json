@@ -1,0 +1,13 @@
+{
+  "name": "utilities-function",
+  "version": "1.0.0",
+  "description": "Miscellaneous utility functions",
+  "main": "src/index.js",
+  "dependencies": {
+    "node-appwrite": "^11.0.0",
+    "date-fns": "^2.30.0"
+  },
+  "engines": {
+    "node": "22.x"
+  }
+}

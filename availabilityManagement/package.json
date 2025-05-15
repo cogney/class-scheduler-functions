@@ -1,0 +1,12 @@
+{
+  "name": "availability-management-function",
+  "version": "1.0.0",
+  "description": "Manage user availability and matching",
+  "main": "src/index.js",
+  "dependencies": {
+    "node-appwrite": "^11.0.0"
+  },
+  "engines": {
+    "node": "22.x"
+  }
+}
