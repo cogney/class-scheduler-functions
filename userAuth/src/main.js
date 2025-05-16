@@ -3,7 +3,7 @@ const { Client, Account, Users } = require('node-appwrite');
 
 module.exports = async function(req, res) {
   const client = new Client()
-    .setEndpoint('https://fra.cloud.appwrite.io/v1')
+    .setEndpoint('https://fra.appwrite.io/v1')
     .setProject(process.env.APPWRITE_PROJECT_ID)
     .setKey(process.env.APPWRITE_API_KEY);
 
