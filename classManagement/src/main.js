@@ -1,5 +1,5 @@
 // classManagement.js - handles all class-related operations
-const { Client, Databases, Query, ID } = require('node-appwrite');
+import { Client, Databases, Query, ID } from 'node-appwrite';
 
 module.exports = async function(req, res) {
   const client = new Client()
