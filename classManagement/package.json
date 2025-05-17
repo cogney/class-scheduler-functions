@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Class creation, retrieval and management",
   "main": "src/main.js",
+  "type": "module",
   "dependencies": {
     "node-appwrite": "^16.0.0"
   },

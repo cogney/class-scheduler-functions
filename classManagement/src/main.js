@@ -1,10 +1,10 @@
-// classManagement.js - handles all class-related operations
-const { Client, Databases, Query, ID } = require('node-appwrite');
+import { Client, Databases, Query, ID } from 'node-appwrite';
 
-module.exports = async function(req, res) {
+export default async function({ req, res }) {
+  // Set up the client
   const client = new Client()
     .setEndpoint('https://cloud.appwrite.io/v1')
-    .setProject(process.env.APPWRITE_PROJECT_ID)
+    .setProject(process.env.APPWRITE_FUNCTION_PROJECT_ID)
     .setKey(process.env.APPWRITE_API_KEY);
 
   const databases = new Databases(client);
@@ -108,14 +108,18 @@ module.exports = async function(req, res) {
         });
       
       default:
-        throw new Error('Invalid action specified');
+        return res.json({
+          success: false,
+          message: 'Invalid action specified',
+          action: action || 'unknown'
+        }, 400);
     }
   } catch (error) {
-    console.error(`Error in class management (${req.payload?.action}):`, error);
+    console.error(`Error in class management:`, error);
     return res.json({
       success: false,
       message: `Class operation failed: ${error.message}`,
       error: error.message
     }, 500);
   }
-};
+}
