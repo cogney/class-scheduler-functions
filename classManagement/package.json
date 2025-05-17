@@ -2,9 +2,9 @@
   "name": "class-management-function",
   "version": "1.0.0",
   "description": "Class creation, retrieval and management",
-  "main": "src/index.js",
+  "main": "src/main.js",
   "dependencies": {
-    "node-appwrite": "^11.0.0"
+    "node-appwrite": "^16.0.0"
   },
   "engines": {
     "node": "22.x"

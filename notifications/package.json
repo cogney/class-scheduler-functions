@@ -2,9 +2,9 @@
   "name": "notifications-function",
   "version": "1.0.0",
   "description": "Handle email and SMS notifications",
-  "main": "src/index.js",
+  "main": "src/main.js",
   "dependencies": {
-    "node-appwrite": "^11.0.0",
+    "node-appwrite": "^16.0.0",
     "node-mailjet": "^6.0.2",
     "twilio": "^4.18.0"
   },
