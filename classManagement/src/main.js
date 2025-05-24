@@ -136,11 +136,37 @@ export default async ({ req, res, log, error: logError }) => { // Use log and er
           }, log, logError);
         }
         
+        // Check if user is already in the class
         const existingMembers = Array.isArray(classDoc.members) ? classDoc.members : [];
-        const updatedMembers = [...existingMembers, { 
+        const userAlreadyJoined = existingMembers.some(memberStr => {
+          try {
+            const member = JSON.parse(memberStr);
+            return member.userId === data.userId;
+          } catch (e) {
+            return false;
+          }
+        });
+
+        if (userAlreadyJoined) {
+          log(`Warning: User ${data.userId} already joined this class.`);
+          return sendJsonResponse(res, 400, {
+            success: false,
+            message: 'You have already joined this class',
+            action: 'joinClass'
+          }, log, logError);
+        }
+        
+        // Create simple member object and stringify it for storage
+        const newMember = { 
           userId: data.userId, 
-          name: data.name 
-        }];
+          name: data.name
+        };
+        
+        // JSON stringify the member object before adding to array
+        const memberString = JSON.stringify(newMember);
+        log(`Adding member string: ${memberString}`);
+        
+        const updatedMembers = [...existingMembers, memberString];
         
         await databases.updateDocument(
           databaseId,
