@@ -183,6 +183,58 @@ export default async ({ req, res, log, error: logError }) => { // Use log and er
           message: 'Successfully joined class',
           action: 'joinClass'
         }, log, logError);
+
+      case 'leaveClass':
+        log(`Executing action: leaveClass for classId: ${data.classId}, userId: ${data.userId}`);
+        const classToLeave = await databases.getDocument(
+          databaseId,
+          classesCollectionId,
+          data.classId
+        );
+        
+        log(`Class to leave: ${classToLeave.$id}, Members: ${classToLeave.members?.length || 0}`);
+        
+        const currentMembers = Array.isArray(classToLeave.members) ? classToLeave.members : [];
+        
+        // Find and remove the user from members array
+        const updatedMembersAfterLeave = currentMembers.filter(memberStr => {
+          try {
+            const member = JSON.parse(memberStr);
+            return member.userId !== data.userId;
+          } catch (e) {
+            // If can't parse, keep the member (shouldn't happen with proper data)
+            return true;
+          }
+        });
+        
+        // Check if user was actually in the class
+        if (updatedMembersAfterLeave.length === currentMembers.length) {
+          log(`Warning: User ${data.userId} was not found in class ${data.classId}`);
+          return sendJsonResponse(res, 400, {
+            success: false,
+            message: 'You are not enrolled in this class',
+            action: 'leaveClass'
+          }, log, logError);
+        }
+        
+        // Update the class document
+        const totalSpots = typeof classToLeave.totalSpots === 'number' ? classToLeave.totalSpots : 0;
+        await databases.updateDocument(
+          databaseId,
+          classesCollectionId,
+          data.classId,
+          {
+            members: updatedMembersAfterLeave,
+            spotsLeft: totalSpots - updatedMembersAfterLeave.length
+          }
+        );
+        
+        log(`User successfully left class. Remaining members: ${updatedMembersAfterLeave.length}`);
+        return sendJsonResponse(res, 200, {
+          success: true,
+          message: 'Successfully left class',
+          action: 'leaveClass'
+        }, log, logError);
         
       case 'createClass':
         log(`Executing action: createClass with data: ${JSON.stringify(data)}`);
