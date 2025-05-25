@@ -218,14 +218,14 @@ export default async ({ req, res, log, error: logError }) => { // Use log and er
         }
         
         // Update the class document
-        const totalSpots = typeof classToLeave.totalSpots === 'number' ? classToLeave.totalSpots : 0;
+        const leaveTotalSpots = typeof classToLeave.totalSpots === 'number' ? classToLeave.totalSpots : 0;
         await databases.updateDocument(
           databaseId,
           classesCollectionId,
           data.classId,
           {
             members: updatedMembersAfterLeave,
-            spotsLeft: totalSpots - updatedMembersAfterLeave.length
+            spotsLeft: leaveTotalSpots - updatedMembersAfterLeave.length
           }
         );
         
