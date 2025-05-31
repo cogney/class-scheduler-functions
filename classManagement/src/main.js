@@ -208,10 +208,9 @@ export default async ({ req, res, log, error: logError }) => {
         
         log(`Class to join: ${classDoc.$id}, Members: ${classDoc.members?.length || 0}, Total Spots: ${classDoc.totalSpots}`);
         const currentMembersCount = classDoc.members?.length || 0;
-        const totalSpots = typeof classDoc.totalSpots === 'number' ? classDoc.totalSpots : 0;
 
-        if (currentMembersCount >= totalSpots) {
-          log(`Warning: Class is full. Members: ${currentMembersCount}, Spots: ${totalSpots}`);
+        if (currentMembersCount >= (classDoc.totalSpots || 0)) {
+          log(`Warning: Class is full. Members: ${currentMembersCount}, Spots: ${classDoc.totalSpots || 0}`);
           return sendJsonResponse(res, 400, {
             success: false,
             message: 'Class is full',
@@ -257,7 +256,7 @@ export default async ({ req, res, log, error: logError }) => {
           data.classId,
           {
             members: updatedMembers,
-            spotsLeft: totalSpots - updatedMembers.length
+            spotsLeft: (classDoc.totalSpots || 0) - updatedMembers.length
           }
         );
         log("User successfully joined class.");
@@ -300,14 +299,13 @@ export default async ({ req, res, log, error: logError }) => {
         }
         
         // Update the class document
-        const leaveClassTotalSpots = typeof classToLeave.totalSpots === 'number' ? classToLeave.totalSpots : 0;
         await databases.updateDocument(
           databaseId,
           classesCollectionId,
           data.classId,
           {
             members: updatedMembersAfterLeave,
-            spotsLeft: leaveClassTotalSpots - updatedMembersAfterLeave.length
+            spotsLeft: (classToLeave.totalSpots || 0) - updatedMembersAfterLeave.length
           }
         );
         
