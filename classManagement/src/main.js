@@ -1,28 +1,21 @@
 import { Client, Databases, Query, ID } from 'node-appwrite';
 
 // Helper function to log and send JSON response
-// We'll pass log and logError to it
 const sendJsonResponse = (res, statusCode, data, log, logError) => {
   const responseLogMessage = `Sending response: Status ${statusCode}, Data: ${JSON.stringify(data)}`;
   if (statusCode >= 400) {
-    logError ? logError(responseLogMessage) : console.error(responseLogMessage); // Use logError if available
+    logError ? logError(responseLogMessage) : console.error(responseLogMessage);
   } else {
-    log ? log(responseLogMessage) : console.log(responseLogMessage); // Use log if available
+    log ? log(responseLogMessage) : console.log(responseLogMessage);
   }
-  // Appwrite's res.json typically only takes data. Status code is often implicit or set via res.status().
-  // For simplicity and common Appwrite practice, we'll use res.json(data).
-  // If you need to set a specific status code and res.json doesn't take it,
-  // you might need to use res.status(statusCode).json(data) if supported, or res.send(JSON.stringify(data), statusCode).
-  // However, Appwrite often infers success/failure status.
   return res.json(data);
 };
 
-
-export default async ({ req, res, log, error: logError }) => { // Use log and error (aliased to logError) from context
+export default async ({ req, res, log, error: logError }) => {
   log("classManagement function invoked.");
   log(`Request Method: ${req.method}`);
   log(`Request Headers: ${JSON.stringify(req.headers)}`);
-  log(`Raw Request Body (req.body): ${req.body}`); // THIS IS KEY FOR DEBUGGING PAYLOAD
+  log(`Raw Request Body (req.body): ${req.body}`);
 
   let client;
 
@@ -35,10 +28,8 @@ export default async ({ req, res, log, error: logError }) => { // Use log and er
     const classesCollectionId = process.env.CLASSES_COLLECTION_ID;
     const appwriteEndpoint = process.env.APPWRITE_ENDPOINT || 'https://cloud.appwrite.io/v1';
 
-
     if (!projectId) {
         logError("Configuration Error: APPWRITE_FUNCTION_PROJECT_ID environment variable not set.");
-        // No return here yet, let it fall into the main catch which will use sendJsonResponse
         throw new Error("APPWRITE_FUNCTION_PROJECT_ID environment variable not set.");
     }
     if (!apiKey) {
@@ -65,17 +56,14 @@ export default async ({ req, res, log, error: logError }) => { // Use log and er
     // --- Payload Parsing ---
     log("Attempting to parse request body...");
     const requestBodyString = req.body || '{}';
-    if (requestBodyString === '{}' && req.body && req.body.length > 0) { // Check if req.body was not an empty string initially
-        log(`Warning: req.body was present but perhaps not valid JSON, resulting in empty object. Original req.body type: ${typeof req.body}, content: ${req.body.substring(0,100)}...`);
-    }
-    const parsedPayload = JSON.parse(requestBodyString); // This can throw if req.body is not valid JSON
+    const parsedPayload = JSON.parse(requestBodyString);
     const { action, ...data } = parsedPayload;
     log(`Parsed Action: ${action}`);
     log(`Parsed Data: ${JSON.stringify(data)}`);
 
     if (!action) {
       logError("No action specified in the payload.");
-      return sendJsonResponse(res, 400, { // Using helper
+      return sendJsonResponse(res, 400, {
         success: false,
         message: 'Invalid action: No action specified.',
         action: 'unknown'
@@ -90,7 +78,7 @@ export default async ({ req, res, log, error: logError }) => { // Use log and er
           classesCollectionId,
           [
             Query.equal('type', data.classType),
-            Query.equal('status', 'active'), // Ensure 'status' is queryable
+            Query.equal('status', 'active'),
           ]
         );
         log(`Found ${classes.documents.length} available classes.`);
@@ -98,6 +86,102 @@ export default async ({ req, res, log, error: logError }) => { // Use log and er
           success: true,
           classes: classes.documents,
           action: 'getAvailableClasses'
+        }, log, logError);
+
+      case 'getAllClasses':
+        log(`Executing action: getAllClasses for admin`);
+        
+        // Build query filters
+        const queries = [];
+        
+        // Filter by class type if specified
+        if (data.classType && data.classType !== 'all') {
+          queries.push(Query.equal('type', data.classType));
+        }
+        
+        // Filter by status if specified
+        if (data.status && data.status !== 'all') {
+          queries.push(Query.equal('status', data.status));
+        }
+        
+        // Add pagination
+        const limit = data.limit || 25;
+        const offset = data.offset || 0;
+        queries.push(Query.limit(limit));
+        queries.push(Query.offset(offset));
+        
+        // Order by creation date (newest first)
+        queries.push(Query.orderDesc('$createdAt'));
+        
+        const allClasses = await databases.listDocuments(
+          databaseId,
+          classesCollectionId,
+          queries
+        );
+        
+        // Calculate enrollment info for each class
+        const classesWithStats = allClasses.documents.map(classDoc => {
+          const totalSpots = classDoc.totalSpots || 0;
+          const currentMembers = Array.isArray(classDoc.members) ? classDoc.members.length : 0;
+          const spotsLeft = totalSpots - currentMembers;
+          const fillRate = totalSpots > 0 ? (currentMembers / totalSpots) * 100 : 0;
+          
+          return {
+            ...classDoc,
+            currentMembers,
+            spotsLeft,
+            fillRate: Math.round(fillRate)
+          };
+        });
+        
+        log(`Found ${allClasses.documents.length} classes for admin view.`);
+        return sendJsonResponse(res, 200, {
+          success: true,
+          classes: classesWithStats,
+          total: allClasses.total,
+          action: 'getAllClasses'
+        }, log, logError);
+
+      case 'getClassStats':
+        log(`Executing action: getClassStats for admin dashboard`);
+        
+        // Get all classes for stats calculation
+        const statsClasses = await databases.listDocuments(
+          databaseId,
+          classesCollectionId,
+          [Query.limit(1000)] // Get all classes
+        );
+        
+        const totalClasses = statsClasses.documents.length;
+        const activeClasses = statsClasses.documents.filter(c => c.status === 'active').length;
+        
+        // Calculate total enrolled students and fill rate
+        let totalEnrolled = 0;
+        let totalSpots = 0;
+        
+        statsClasses.documents.forEach(classDoc => {
+          const currentMembers = Array.isArray(classDoc.members) ? classDoc.members.length : 0;
+          const spots = classDoc.totalSpots || 0;
+          
+          totalEnrolled += currentMembers;
+          totalSpots += spots;
+        });
+        
+        const overallFillRate = totalSpots > 0 ? Math.round((totalEnrolled / totalSpots) * 100) : 0;
+        
+        const stats = {
+          totalClasses,
+          activeClasses,
+          enrolledStudents: totalEnrolled,
+          fillRate: overallFillRate,
+          totalCapacity: totalSpots
+        };
+        
+        log(`Generated stats: ${JSON.stringify(stats)}`);
+        return sendJsonResponse(res, 200, {
+          success: true,
+          stats,
+          action: 'getClassStats'
         }, log, logError);
         
       case 'getClassDetails':
@@ -123,7 +207,6 @@ export default async ({ req, res, log, error: logError }) => { // Use log and er
         );
         
         log(`Class to join: ${classDoc.$id}, Members: ${classDoc.members?.length || 0}, Total Spots: ${classDoc.totalSpots}`);
-        // Ensure members and totalSpots are numbers for comparison
         const currentMembersCount = classDoc.members?.length || 0;
         const totalSpots = typeof classDoc.totalSpots === 'number' ? classDoc.totalSpots : 0;
 
@@ -156,13 +239,13 @@ export default async ({ req, res, log, error: logError }) => { // Use log and er
           }, log, logError);
         }
         
-        // Create simple member object and stringify it for storage
+        // Create member object with join timestamp
         const newMember = { 
           userId: data.userId, 
-          name: data.name
+          name: data.name,
+          joinedAt: new Date().toISOString()
         };
         
-        // JSON stringify the member object before adding to array
         const memberString = JSON.stringify(newMember);
         log(`Adding member string: ${memberString}`);
         
@@ -202,7 +285,6 @@ export default async ({ req, res, log, error: logError }) => { // Use log and er
             const member = JSON.parse(memberStr);
             return member.userId !== data.userId;
           } catch (e) {
-            // If can't parse, keep the member (shouldn't happen with proper data)
             return true;
           }
         });
@@ -235,16 +317,103 @@ export default async ({ req, res, log, error: logError }) => { // Use log and er
           message: 'Successfully left class',
           action: 'leaveClass'
         }, log, logError);
+
+      case 'updateClass':
+        log(`Executing action: updateClass for classId: ${data.classId}`);
+        
+        // Build update object
+        const updateData = {};
+        
+        if (data.day) updateData.day = data.day;
+        if (data.time) updateData.time = data.time;
+        if (data.type) updateData.type = data.type;
+        if (data.totalSpots !== undefined) {
+          updateData.totalSpots = data.totalSpots;
+          // Recalculate spots left
+          const currentClass = await databases.getDocument(databaseId, classesCollectionId, data.classId);
+          const currentMembersCount = Array.isArray(currentClass.members) ? currentClass.members.length : 0;
+          updateData.spotsLeft = data.totalSpots - currentMembersCount;
+        }
+        
+        const updatedClass = await databases.updateDocument(
+          databaseId,
+          classesCollectionId,
+          data.classId,
+          updateData
+        );
+        
+        log(`Class ${data.classId} updated successfully`);
+        return sendJsonResponse(res, 200, {
+          success: true,
+          class: updatedClass,
+          action: 'updateClass'
+        }, log, logError);
+
+      case 'cancelClass':
+        log(`Executing action: cancelClass for classId: ${data.classId}`);
+        
+        const cancelledClass = await databases.updateDocument(
+          databaseId,
+          classesCollectionId,
+          data.classId,
+          {
+            status: 'cancelled',
+            cancelledAt: new Date().toISOString(),
+            cancelReason: data.reason || 'No reason provided'
+          }
+        );
+        
+        log(`Class ${data.classId} cancelled successfully`);
+        return sendJsonResponse(res, 200, {
+          success: true,
+          class: cancelledClass,
+          action: 'cancelClass'
+        }, log, logError);
+
+      case 'reactivateClass':
+        log(`Executing action: reactivateClass for classId: ${data.classId}`);
+        
+        const reactivatedClass = await databases.updateDocument(
+          databaseId,
+          classesCollectionId,
+          data.classId,
+          {
+            status: 'active',
+            reactivatedAt: new Date().toISOString()
+          }
+        );
+        
+        log(`Class ${data.classId} reactivated successfully`);
+        return sendJsonResponse(res, 200, {
+          success: true,
+          class: reactivatedClass,
+          action: 'reactivateClass'
+        }, log, logError);
+
+      case 'deleteClass':
+        log(`Executing action: deleteClass for classId: ${data.classId}`);
+        
+        await databases.deleteDocument(
+          databaseId,
+          classesCollectionId,
+          data.classId
+        );
+        
+        log(`Class ${data.classId} deleted successfully`);
+        return sendJsonResponse(res, 200, {
+          success: true,
+          message: 'Class deleted successfully',
+          action: 'deleteClass'
+        }, log, logError);
         
       case 'createClass':
         log(`Executing action: createClass with data: ${JSON.stringify(data)}`);
-        const spots = data.totalSpots || 5; // Default to 5 if not provided
+        const spots = data.totalSpots || 5;
         const initialMembersCount = data.initialMembers?.length || 0;
 
         if (typeof data.classType !== 'string' || !data.classType) {
             throw new Error("classType is required and must be a string for creating a class.");
         }
-        // Add more validations for required fields like day, time as needed
 
         const newClass = await databases.createDocument(
           databaseId,
@@ -252,8 +421,8 @@ export default async ({ req, res, log, error: logError }) => { // Use log and er
           ID.unique(),
           {
             type: data.classType,
-            day: data.day, // Ensure these are validated or have defaults
-            time: data.time, // Ensure these are validated or have defaults
+            day: data.day,
+            time: data.time,
             members: data.initialMembers || [],
             totalSpots: spots,
             spotsLeft: spots - initialMembersCount,
@@ -262,11 +431,7 @@ export default async ({ req, res, log, error: logError }) => { // Use log and er
           }
         );
         log(`New class created with ID: ${newClass.$id}`);
-        // For 'create' operations, a 201 status code is more appropriate.
-        // However, sendJsonResponse currently defaults to 200 implicitly with res.json.
-        // If Appwrite's res object allows res.status(201).json(...), that would be ideal.
-        // For now, keeping it simple.
-        return sendJsonResponse(res, 201, { // Pass 201, but actual setting depends on res.json behavior
+        return sendJsonResponse(res, 201, {
           success: true,
           classId: newClass.$id,
           action: 'createClass'
@@ -280,22 +445,18 @@ export default async ({ req, res, log, error: logError }) => { // Use log and er
           action: action || 'unknown'
         }, log, logError);
     }
-  } catch (e) { // Changed error variable to 'e' to avoid conflict with context 'error'
+  } catch (e) {
     logError("An error occurred in classManagement function execution:");
     logError(`Error Message: ${e.message}`);
     logError(`Error Stack: ${e.stack}`);
-    if (e.response) { // If it's an Appwrite SDK error, it might have more details
+    if (e.response) {
         logError(`Appwrite SDK Error Response: ${JSON.stringify(e.response)}`);
     }
     
-    // The res.json() in Appwrite usually implies a 200 OK for success or a different status
-    // if the function execution itself fails (which Appwrite handles as a 500).
-    // To explicitly send a 500 from our logic, we'd need a res.send() or res.status().json().
-    // For now, we send a success:false payload.
     return sendJsonResponse(res, 500, {
       success: false,
       message: `Class operation failed: ${e.message}`,
       errorDetails: e.toString()
     }, log, logError);
   }
-}
+};

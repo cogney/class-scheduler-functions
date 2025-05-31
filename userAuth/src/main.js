@@ -32,15 +32,6 @@ module.exports = async function(req, res) {
           action: 'register'
         });
         
-      case 'login':
-        // Server-side login implementation if needed
-        // Note: Typically handled by client SDK
-        return res.json({
-          success: true,
-          message: 'Login handled by client SDK',
-          action: 'login'
-        });
-        
       case 'getProfile':
         // Get user profile data
         const user = await users.get(data.userId);
@@ -55,6 +46,64 @@ module.exports = async function(req, res) {
             phone: prefs.phone
           },
           action: 'getProfile'
+        });
+
+      case 'verifyAdmin':
+        // Check if user has admin label
+        const adminUser = await users.get(data.userId);
+        const isAdmin = adminUser.labels && adminUser.labels.includes('admin');
+        
+        return res.json({
+          success: true,
+          isAdmin: isAdmin,
+          userId: data.userId,
+          action: 'verifyAdmin'
+        });
+
+      case 'getUsersByClass':
+        // Get enrolled students for a specific class
+        // This will parse the members array to get user details
+        const memberDetails = [];
+        
+        if (data.members && Array.isArray(data.members)) {
+          for (const memberStr of data.members) {
+            try {
+              const member = JSON.parse(memberStr);
+              if (member.userId) {
+                try {
+                  const memberUser = await users.get(member.userId);
+                  const memberPrefs = await users.getPrefs(member.userId);
+                  
+                  memberDetails.push({
+                    userId: member.userId,
+                    name: member.name || memberUser.name,
+                    email: memberUser.email,
+                    phone: memberPrefs.phone || '',
+                    joinedAt: member.joinedAt || 'Unknown'
+                  });
+                } catch (userError) {
+                  // If can't fetch user details, include basic info
+                  memberDetails.push({
+                    userId: member.userId,
+                    name: member.name || 'Unknown',
+                    email: 'Unknown',
+                    phone: 'Unknown',
+                    joinedAt: member.joinedAt || 'Unknown',
+                    error: 'Could not fetch user details'
+                  });
+                }
+              }
+            } catch (parseError) {
+              console.error('Error parsing member:', parseError);
+            }
+          }
+        }
+        
+        return res.json({
+          success: true,
+          members: memberDetails,
+          totalMembers: memberDetails.length,
+          action: 'getUsersByClass'
         });
         
       default:
