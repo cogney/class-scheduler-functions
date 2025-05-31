@@ -1,7 +1,6 @@
 // userAuth.js - handles all user-related operations
-const { Client, Account, Users } = require('node-appwrite');
-
-module.exports = async function(req, res) {
+import { Client, Account, Users } from 'node-appwrite';
+export default async function({ req, res, log, error: logError }) {
   const client = new Client()
     .setEndpoint('https://cloud.appwrite.io/v1')
     .setProject(process.env.APPWRITE_PROJECT_ID)
