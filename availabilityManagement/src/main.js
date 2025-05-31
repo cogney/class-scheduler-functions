@@ -1,27 +1,27 @@
-import { Client, Databases, Query, ID } from 'node-appwrite';
+const { Client, Databases, Query, ID } = require('node-appwrite');
 
 // Helper function to log and send JSON response
-const sendJsonResponse = (res, statusCode, data, log, logError) => {
+const sendJsonResponse = (res, statusCode, data) => {
   const responseLogMessage = `Sending response: Status ${statusCode}, Data: ${JSON.stringify(data)}`;
   if (statusCode >= 400) {
-    logError ? logError(responseLogMessage) : console.error(responseLogMessage);
+    console.error(responseLogMessage);
   } else {
-    log ? log(responseLogMessage) : console.log(responseLogMessage);
+    console.log(responseLogMessage);
   }
   return res.json(data);
 };
 
-export default async ({ req, res, log, error: logError }) => {
-  log("availabilityManagement function invoked.");
-  log(`Request Method: ${req.method}`);
-  log(`Request Headers: ${JSON.stringify(req.headers)}`);
-  log(`Raw Request Body (req.body): ${req.body}`);
+module.exports = async function(req, res) {
+  console.log("availabilityManagement function invoked.");
+  console.log(`Request Method: ${req.method}`);
+  console.log(`Request Headers: ${JSON.stringify(req.headers)}`);
+  console.log(`Raw Request Body (req.body): ${req.body}`);
 
   let client;
 
   try {
     // --- Client Initialization ---
-    log("Attempting to initialize Appwrite client...");
+    console.log("Attempting to initialize Appwrite client...");
     const projectId = process.env.APPWRITE_FUNCTION_PROJECT_ID;
     const apiKey = process.env.APPWRITE_API_KEY;
     const databaseId = process.env.DATABASE_ID;
@@ -30,19 +30,19 @@ export default async ({ req, res, log, error: logError }) => {
     const appwriteEndpoint = process.env.APPWRITE_ENDPOINT || 'https://cloud.appwrite.io/v1';
 
     if (!projectId) {
-      logError("Configuration Error: APPWRITE_FUNCTION_PROJECT_ID environment variable not set.");
+      console.error("Configuration Error: APPWRITE_FUNCTION_PROJECT_ID environment variable not set.");
       throw new Error("APPWRITE_FUNCTION_PROJECT_ID environment variable not set.");
     }
     if (!apiKey) {
-      logError("Configuration Error: APPWRITE_API_KEY environment variable not set.");
+      console.error("Configuration Error: APPWRITE_API_KEY environment variable not set.");
       throw new Error("APPWRITE_API_KEY environment variable not set.");
     }
     if (!databaseId) {
-      logError("Configuration Error: DATABASE_ID environment variable not set.");
+      console.error("Configuration Error: DATABASE_ID environment variable not set.");
       throw new Error("DATABASE_ID environment variable not set.");
     }
     if (!availabilityCollectionId) {
-      logError("Configuration Error: AVAILABILITY_COLLECTION_ID environment variable not set.");
+      console.error("Configuration Error: AVAILABILITY_COLLECTION_ID environment variable not set.");
       throw new Error("AVAILABILITY_COLLECTION_ID environment variable not set.");
     }
 
@@ -50,31 +50,31 @@ export default async ({ req, res, log, error: logError }) => {
       .setEndpoint(appwriteEndpoint)
       .setProject(projectId)
       .setKey(apiKey);
-    log("Appwrite client initialized successfully.");
+    console.log("Appwrite client initialized successfully.");
 
     const databases = new Databases(client);
     
     // --- Payload Parsing ---
-    log("Attempting to parse request body...");
+    console.log("Attempting to parse request body...");
     const requestBodyString = req.body || '{}';
     const parsedPayload = JSON.parse(requestBodyString);
     const { action, ...data } = parsedPayload;
-    log(`Parsed Action: ${action}`);
-    log(`Parsed Data: ${JSON.stringify(data)}`);
+    console.log(`Parsed Action: ${action}`);
+    console.log(`Parsed Data: ${JSON.stringify(data)}`);
 
     if (!action) {
-      logError("No action specified in the payload.");
+      console.error("No action specified in the payload.");
       return sendJsonResponse(res, 400, {
         success: false,
         message: 'Invalid action: No action specified.',
         action: 'unknown'
-      }, log, logError);
+      });
     }
     
     switch (action) {
       case 'submitAvailability':
-        log(`Executing action: submitAvailability for userId: ${data.userId}, classType: ${data.classType}`);
-        log(`Availabilities: ${JSON.stringify(data.availabilities)}`);
+        console.log(`Executing action: submitAvailability for userId: ${data.userId}, classType: ${data.classType}`);
+        console.log(`Availabilities: ${JSON.stringify(data.availabilities)}`);
         
         // Save user's availability
         const availabilityDoc = await databases.createDocument(
@@ -90,22 +90,22 @@ export default async ({ req, res, log, error: logError }) => {
           }
         );
         
-        log(`Availability document created with ID: ${availabilityDoc.$id}`);
+        console.log(`Availability document created with ID: ${availabilityDoc.$id}`);
         
         // Optionally trigger match checking
         if (data.checkForMatches) {
-          log("Checking for matches...");
-          await checkForMatches(databases, data.userId, data.classType, data.availabilities, databaseId, availabilityCollectionId, classesCollectionId, log, logError);
+          console.log("Checking for matches...");
+          await checkForMatches(databases, data.userId, data.classType, data.availabilities, databaseId, availabilityCollectionId, classesCollectionId);
         }
         
         return sendJsonResponse(res, 200, {
           success: true,
           availabilityId: availabilityDoc.$id,
           action: 'submitAvailability'
-        }, log, logError);
+        });
         
       case 'findMatches':
-        log(`Executing action: findMatches for classType: ${data.classType}, day: ${data.day}, time: ${data.time}`);
+        console.log(`Executing action: findMatches for classType: ${data.classType}, day: ${data.day}, time: ${data.time}`);
         
         // Find matching availabilities for a time slot
         const matches = await findMatchingUsers(
@@ -115,18 +115,17 @@ export default async ({ req, res, log, error: logError }) => {
           data.time, 
           data.excludeUserId,
           databaseId,
-          availabilityCollectionId,
-          log
+          availabilityCollectionId
         );
         
         return sendJsonResponse(res, 200, {
           success: true,
           matches: matches,
           action: 'findMatches'
-        }, log, logError);
+        });
         
       case 'getUserAvailability':
-        log(`Executing action: getUserAvailability for userId: ${data.userId}`);
+        console.log(`Executing action: getUserAvailability for userId: ${data.userId}`);
         
         // Get a user's availability
         const userAvailability = await databases.listDocuments(
@@ -138,78 +137,78 @@ export default async ({ req, res, log, error: logError }) => {
           ]
         );
         
-        log(`Found ${userAvailability.documents.length} availability documents for user.`);
+        console.log(`Found ${userAvailability.documents.length} availability documents for user.`);
         
         return sendJsonResponse(res, 200, {
           success: true,
           availabilities: userAvailability.documents,
           action: 'getUserAvailability'
-        }, log, logError);
+        });
         
       default:
-        log(`Warning: Invalid action received: ${action}`);
+        console.log(`Warning: Invalid action received: ${action}`);
         return sendJsonResponse(res, 400, {
           success: false,
           message: 'Invalid action specified',
           action: action || 'unknown'
-        }, log, logError);
+        });
     }
   } catch (e) {
-    logError("An error occurred in availabilityManagement function execution:");
-    logError(`Error Message: ${e.message}`);
-    logError(`Error Stack: ${e.stack}`);
+    console.error("An error occurred in availabilityManagement function execution:");
+    console.error(`Error Message: ${e.message}`);
+    console.error(`Error Stack: ${e.stack}`);
     if (e.response) {
-      logError(`Appwrite SDK Error Response: ${JSON.stringify(e.response)}`);
+      console.error(`Appwrite SDK Error Response: ${JSON.stringify(e.response)}`);
     }
     
     return sendJsonResponse(res, 500, {
       success: false,
       message: `Availability operation failed: ${e.message}`,
       errorDetails: e.toString()
-    }, log, logError);
+    });
   }
 };
 
 // Helper function to check for matches
-async function checkForMatches(databases, userId, classType, availabilities, databaseId, availabilityCollectionId, classesCollectionId, log, logError) {
-  log("Starting match checking process...");
+async function checkForMatches(databases, userId, classType, availabilities, databaseId, availabilityCollectionId, classesCollectionId) {
+  console.log("Starting match checking process...");
   
   // For each availability, find if there are enough matching users
   for (const slot of availabilities) {
-    log(`Checking matches for slot: ${slot}`);
+    console.log(`Checking matches for slot: ${slot}`);
     const [day, time] = slot.split('-');
     
     if (!day || !time) {
-      log(`Warning: Invalid slot format: ${slot}`);
+      console.log(`Warning: Invalid slot format: ${slot}`);
       continue;
     }
     
     try {
       // Find users available at this time
-      const matches = await findMatchingUsers(databases, classType, day, time, userId, databaseId, availabilityCollectionId, log);
+      const matches = await findMatchingUsers(databases, classType, day, time, userId, databaseId, availabilityCollectionId);
       
-      log(`Found ${matches.length} matching users for ${slot}`);
+      console.log(`Found ${matches.length} matching users for ${slot}`);
       
       // If enough users (e.g., 3+), create a class
       if (matches.length >= 2) { // At least 3 total including current user
-        log(`Enough matches found for ${slot}. Creating class...`);
+        console.log(`Enough matches found for ${slot}. Creating class...`);
         
         // Here you could call your classManagement function to create a class
         // For now, just log the potential class creation
-        log(`Would create class: ${classType} on ${day} at ${time} with users: ${userId}, ${matches.map(m => m.userId).join(', ')}`);
+        console.log(`Would create class: ${classType} on ${day} at ${time} with users: ${userId}, ${matches.map(m => m.userId).join(', ')}`);
         
         // TODO: Implement class creation logic
         // This could involve calling the classManagement function or creating the class directly here
       }
     } catch (error) {
-      logError(`Error checking matches for slot ${slot}: ${error.message}`);
+      console.error(`Error checking matches for slot ${slot}: ${error.message}`);
     }
   }
 }
 
-async function findMatchingUsers(databases, classType, day, time, excludeUserId, databaseId, availabilityCollectionId, log) {
+async function findMatchingUsers(databases, classType, day, time, excludeUserId, databaseId, availabilityCollectionId) {
   const timeSlot = `${day}-${time}`;
-  log(`Looking for users with availability for: ${timeSlot}`);
+  console.log(`Looking for users with availability for: ${timeSlot}`);
   
   try {
     // Find availabilities that include this time slot
@@ -224,7 +223,7 @@ async function findMatchingUsers(databases, classType, day, time, excludeUserId,
       ]
     );
     
-    log(`Found ${matchingAvailabilities.documents.length} total availability documents`);
+    console.log(`Found ${matchingAvailabilities.documents.length} total availability documents`);
     
     // Filter documents that contain the time slot and exclude the current user
     const matches = matchingAvailabilities.documents
@@ -241,10 +240,10 @@ async function findMatchingUsers(databases, classType, day, time, excludeUserId,
         availabilityId: doc.$id
       }));
     
-    log(`Filtered to ${matches.length} matching users`);
+    console.log(`Filtered to ${matches.length} matching users`);
     return matches;
   } catch (error) {
-    log(`Error finding matching users: ${error.message}`);
+    console.log(`Error finding matching users: ${error.message}`);
     throw error;
   }
 }
