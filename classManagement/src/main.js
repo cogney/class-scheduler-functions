@@ -300,14 +300,14 @@ export default async ({ req, res, log, error: logError }) => {
         }
         
         // Update the class document
-        const leaveTotalSpots = typeof classToLeave.totalSpots === 'number' ? classToLeave.totalSpots : 0;
+        const leaveClassTotalSpots = typeof classToLeave.totalSpots === 'number' ? classToLeave.totalSpots : 0;
         await databases.updateDocument(
           databaseId,
           classesCollectionId,
           data.classId,
           {
             members: updatedMembersAfterLeave,
-            spotsLeft: leaveTotalSpots - updatedMembersAfterLeave.length
+            spotsLeft: leaveClassTotalSpots - updatedMembersAfterLeave.length
           }
         );
         
