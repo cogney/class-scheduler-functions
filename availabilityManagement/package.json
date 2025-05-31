@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Manage user availability and matching",
   "main": "src/main.js",
-  "type": "module"
+  "type": "module",
   "dependencies": {
     "node-appwrite": "^16.0.0"
   },
