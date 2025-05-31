@@ -1,3 +1,4 @@
+// userAuth.js
 import { Client, Account, Users } from 'node-appwrite';
 
 // Helper function to log and send JSON response
