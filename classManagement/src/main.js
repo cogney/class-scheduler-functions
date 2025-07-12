@@ -425,7 +425,6 @@ export default async ({ req, res, log, error: logError }) => {
             totalSpots: spots,
             spotsLeft: spots - initialMembersCount,
             status: 'active',
-            createdAt: new Date().toISOString()
           }
         );
         log(`New class created with ID: ${newClass.$id}`);
