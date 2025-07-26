@@ -1,4 +1,4 @@
-import { Client, Databases, Query, ID } from 'node-appwrite';
+import { Client, Databases, Query, ID, Functions } from 'node-appwrite';
 
 // Helper function to log and send JSON response
 const sendJsonResponse = (res, statusCode, data, log, logError) => {
@@ -26,6 +26,7 @@ export default async ({ req, res, log, error: logError }) => {
     const apiKey = process.env.APPWRITE_API_KEY;
     const databaseId = process.env.DATABASE_ID;
     const classesCollectionId = process.env.CLASSES_COLLECTION_ID;
+    const notificationsFunctionId = process.env.NOTIFICATIONS_FUNCTION_ID || 'notifications';
     const appwriteEndpoint = process.env.APPWRITE_ENDPOINT || 'https://cloud.appwrite.io/v1';
 
     if (!projectId) {
@@ -52,6 +53,7 @@ export default async ({ req, res, log, error: logError }) => {
     log("Appwrite client initialized successfully.");
 
     const databases = new Databases(client);
+    const functions = new Functions(client);
     
     // --- Payload Parsing ---
     log("Attempting to parse request body...");
@@ -249,6 +251,7 @@ export default async ({ req, res, log, error: logError }) => {
         log(`Adding member string: ${memberString}`);
         
         const updatedMembers = [...existingMembers, memberString];
+        const newMembersCount = updatedMembers.length;
         
         await databases.updateDocument(
           databaseId,
@@ -256,204 +259,45 @@ export default async ({ req, res, log, error: logError }) => {
           data.classId,
           {
             members: updatedMembers,
-            spotsLeft: (classDoc.totalSpots || 0) - updatedMembers.length
+            spotsLeft: (classDoc.totalSpots || 0) - newMembersCount
           }
         );
+        
+        log("User successfully joined class. Sending email notifications...");
+        
+        // Send email notifications
+        try {
+          const emailData = {
+            action: 'sendClassJoinConfirmation',
+            userName: data.name,
+            userEmail: data.email,
+            userPhone: data.phone,
+            classType: classDoc.type,
+            day: classDoc.day,
+            time: classDoc.time,
+            currentEnrollment: newMembersCount,
+            totalSpots: classDoc.totalSpots || 0
+          };
+          
+          log(`Calling notifications function with data: ${JSON.stringify(emailData)}`);
+          
+          const emailExecution = await functions.createExecution(
+            notificationsFunctionId,
+            JSON.stringify(emailData)
+          );
+          
+          log(`Email notifications execution status: ${emailExecution.status}`);
+          if (emailExecution.status === 'failed') {
+            logError(`Email notifications failed: ${emailExecution.stderr}`);
+          }
+        } catch (emailError) {
+          logError(`Error sending email notifications: ${emailError.message}`);
+          // Don't fail the join operation if emails fail
+        }
+        
         log("User successfully joined class.");
         return sendJsonResponse(res, 200, {
           success: true,
           message: 'Successfully joined class',
           action: 'joinClass'
         }, log, logError);
-
-      case 'leaveClass':
-        log(`Executing action: leaveClass for classId: ${data.classId}, userId: ${data.userId}`);
-        const classToLeave = await databases.getDocument(
-          databaseId,
-          classesCollectionId,
-          data.classId
-        );
-        
-        log(`Class to leave: ${classToLeave.$id}, Members: ${classToLeave.members?.length || 0}`);
-        
-        const currentMembers = Array.isArray(classToLeave.members) ? classToLeave.members : [];
-        
-        // Find and remove the user from members array
-        const updatedMembersAfterLeave = currentMembers.filter(memberStr => {
-          try {
-            const member = JSON.parse(memberStr);
-            return member.userId !== data.userId;
-          } catch (e) {
-            return true;
-          }
-        });
-        
-        // Check if user was actually in the class
-        if (updatedMembersAfterLeave.length === currentMembers.length) {
-          log(`Warning: User ${data.userId} was not found in class ${data.classId}`);
-          return sendJsonResponse(res, 400, {
-            success: false,
-            message: 'You are not enrolled in this class',
-            action: 'leaveClass'
-          }, log, logError);
-        }
-        
-        // Update the class document
-        await databases.updateDocument(
-          databaseId,
-          classesCollectionId,
-          data.classId,
-          {
-            members: updatedMembersAfterLeave,
-            spotsLeft: (classToLeave.totalSpots || 0) - updatedMembersAfterLeave.length
-          }
-        );
-        
-        log(`User successfully left class. Remaining members: ${updatedMembersAfterLeave.length}`);
-        return sendJsonResponse(res, 200, {
-          success: true,
-          message: 'Successfully left class',
-          action: 'leaveClass'
-        }, log, logError);
-
-      case 'updateClass':
-        log(`Executing action: updateClass for classId: ${data.classId}`);
-        
-        // Build update object
-        const updateData = {};
-        
-        if (data.day) updateData.day = data.day;
-        if (data.time) updateData.time = data.time;
-        if (data.type) updateData.type = data.type;
-        if (data.totalSpots !== undefined) {
-          updateData.totalSpots = data.totalSpots;
-          // Recalculate spots left
-          const currentClass = await databases.getDocument(databaseId, classesCollectionId, data.classId);
-          const currentMembersCount = Array.isArray(currentClass.members) ? currentClass.members.length : 0;
-          updateData.spotsLeft = data.totalSpots - currentMembersCount;
-        }
-        
-        const updatedClass = await databases.updateDocument(
-          databaseId,
-          classesCollectionId,
-          data.classId,
-          updateData
-        );
-        
-        log(`Class ${data.classId} updated successfully`);
-        return sendJsonResponse(res, 200, {
-          success: true,
-          class: updatedClass,
-          action: 'updateClass'
-        }, log, logError);
-
-      case 'cancelClass':
-        log(`Executing action: cancelClass for classId: ${data.classId}`);
-        
-        const cancelledClass = await databases.updateDocument(
-          databaseId,
-          classesCollectionId,
-          data.classId,
-          {
-            status: 'cancelled',
-            cancelledAt: new Date().toISOString(),
-            cancelReason: data.reason || 'No reason provided'
-          }
-        );
-        
-        log(`Class ${data.classId} cancelled successfully`);
-        return sendJsonResponse(res, 200, {
-          success: true,
-          class: cancelledClass,
-          action: 'cancelClass'
-        }, log, logError);
-
-      case 'reactivateClass':
-        log(`Executing action: reactivateClass for classId: ${data.classId}`);
-        
-        const reactivatedClass = await databases.updateDocument(
-          databaseId,
-          classesCollectionId,
-          data.classId,
-          {
-            status: 'active',
-            reactivatedAt: new Date().toISOString()
-          }
-        );
-        
-        log(`Class ${data.classId} reactivated successfully`);
-        return sendJsonResponse(res, 200, {
-          success: true,
-          class: reactivatedClass,
-          action: 'reactivateClass'
-        }, log, logError);
-
-      case 'deleteClass':
-        log(`Executing action: deleteClass for classId: ${data.classId}`);
-        
-        await databases.deleteDocument(
-          databaseId,
-          classesCollectionId,
-          data.classId
-        );
-        
-        log(`Class ${data.classId} deleted successfully`);
-        return sendJsonResponse(res, 200, {
-          success: true,
-          message: 'Class deleted successfully',
-          action: 'deleteClass'
-        }, log, logError);
-        
-      case 'createClass':
-        log(`Executing action: createClass with data: ${JSON.stringify(data)}`);
-        const spots = data.totalSpots || 5;
-        const initialMembersCount = data.initialMembers?.length || 0;
-
-        if (typeof data.classType !== 'string' || !data.classType) {
-            throw new Error("classType is required and must be a string for creating a class.");
-        }
-
-        const newClass = await databases.createDocument(
-          databaseId,
-          classesCollectionId,
-          ID.unique(),
-          {
-            type: data.classType,
-            day: data.day,
-            time: data.time,
-            members: data.initialMembers || [],
-            totalSpots: spots,
-            spotsLeft: spots - initialMembersCount,
-            status: 'active',
-          }
-        );
-        log(`New class created with ID: ${newClass.$id}`);
-        return sendJsonResponse(res, 201, {
-          success: true,
-          classId: newClass.$id,
-          action: 'createClass'
-        }, log, logError);
-      
-      default:
-        log(`Warning: Invalid action received: ${action}`);
-        return sendJsonResponse(res, 400, {
-          success: false,
-          message: 'Invalid action specified',
-          action: action || 'unknown'
-        }, log, logError);
-    }
-  } catch (e) {
-    logError("An error occurred in classManagement function execution:");
-    logError(`Error Message: ${e.message}`);
-    logError(`Error Stack: ${e.stack}`);
-    if (e.response) {
-        logError(`Appwrite SDK Error Response: ${JSON.stringify(e.response)}`);
-    }
-    
-    return sendJsonResponse(res, 500, {
-      success: false,
-      message: `Class operation failed: ${e.message}`,
-      errorDetails: e.toString()
-    }, log, logError);
-  }
-};
