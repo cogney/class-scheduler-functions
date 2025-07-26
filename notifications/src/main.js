@@ -1,5 +1,6 @@
 // notifications.js - handles all notification types using Mailgun
 const Mailgun = require("mailgun.js");
+const FormData = require("form-data");
 const { Client, Users } = require('node-appwrite');
 
 // Helper function to log and send JSON response
@@ -43,8 +44,8 @@ module.exports = async ({ req, res, log, error: logError }) => {
 
     const users = new Users(client);
     
-    // Initialize Mailgun without form-data
-    const mailgun = new Mailgun();
+    // Initialize Mailgun with FormData
+    const mailgun = new Mailgun(FormData);
     const mg = mailgun.client({
       username: "api",
       key: process.env.MAILGUN_API_KEY,
