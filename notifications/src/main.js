@@ -1,6 +1,6 @@
 // notifications.js - handles all notification types using Mailgun
-import FormData from "form-data";
-import Mailgun from "mailgun.js";
+const FormData = require("form-data");
+const Mailgun = require("mailgun.js");
 const { Client, Users } = require('node-appwrite');
 
 // Helper function to log and send JSON response
@@ -14,7 +14,7 @@ const sendJsonResponse = (res, statusCode, data, log, logError) => {
   return res.json(data);
 };
 
-export default async ({ req, res, log, error: logError }) => {
+module.exports = async ({ req, res, log, error: logError }) => {
   log("notifications function invoked.");
   log(`Request Method: ${req.method}`);
   log(`Request Headers: ${JSON.stringify(req.headers)}`);
@@ -396,7 +396,7 @@ This notification was sent automatically when a student joined a class.`;
 
     const data = await mg.messages.create("mandarintutorhk.com", {
       from: "Mandarin Tutor HK <postmaster@mandarintutorhk.com>",
-      to: ["dapierce@gmail.com"],
+      to: ["aileen@mandarintutorhk.com"],
       subject: subject,
       text: textContent,
       html: htmlContent
