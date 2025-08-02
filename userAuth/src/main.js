@@ -180,7 +180,7 @@ export default async ({ req, res, log, error: logError }) => {
           };
           
           if (existingSettings.documents.length > 0) {
-            settings = existingSettings.documents[0].settings || settings;
+            settings = JSON.parse(existingSettings.documents[0].settings) || settings;
           }
           
           log(`Admin settings retrieved: ${JSON.stringify(settings)}`);
@@ -225,7 +225,7 @@ export default async ({ req, res, log, error: logError }) => {
               adminSettingsCollectionId,
               existingSettings.documents[0].$id,
               {
-                settings: data.settings,
+                settings: JSON.stringify(data.settings),  // <-- Fixed
                 updatedAt: new Date().toISOString()
               }
             );
@@ -236,7 +236,7 @@ export default async ({ req, res, log, error: logError }) => {
               adminSettingsCollectionId,
               ID.unique(),
               {
-                settings: data.settings,
+                settings: JSON.stringify(data.settings),  // <-- Fixed
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString()
               }
