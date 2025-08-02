@@ -1,7 +1,7 @@
 // notifications.js - handles all notification types using Mailgun
 const Mailgun = require("mailgun.js");
 const FormData = require("form-data");
-const { Client, Users } = require('node-appwrite');
+const { Client, Users, Databases, Query } = require('node-appwrite');
 
 // Helper function to log and send JSON response
 const sendJsonResponse = (res, statusCode, data, log, logError) => {
@@ -25,6 +25,8 @@ module.exports = async ({ req, res, log, error: logError }) => {
     log("Attempting to initialize Appwrite client...");
     const projectId = process.env.APPWRITE_FUNCTION_PROJECT_ID;
     const apiKey = process.env.APPWRITE_API_KEY;
+    const databaseId = process.env.DATABASE_ID;
+    const adminSettingsCollectionId = process.env.ADMIN_SETTINGS_COLLECTION_ID || 'admin_settings';
     const appwriteEndpoint = process.env.APPWRITE_ENDPOINT || 'https://cloud.appwrite.io/v1';
 
     if (!projectId) {
@@ -43,6 +45,7 @@ module.exports = async ({ req, res, log, error: logError }) => {
     log("Appwrite client initialized successfully.");
 
     const users = new Users(client);
+    const databases = new Databases(client);
     
     // Initialize Mailgun with FormData
     const mailgun = new Mailgun(FormData);
@@ -50,6 +53,26 @@ module.exports = async ({ req, res, log, error: logError }) => {
       username: "api",
       key: process.env.MAILGUN_API_KEY,
     });
+
+    // Helper function to get admin notification email
+    const getAdminNotificationEmail = async () => {
+      try {
+        const existingSettings = await databases.listDocuments(
+          databaseId,
+          adminSettingsCollectionId,
+          [Query.limit(1)]
+        );
+        
+        if (existingSettings.documents.length > 0) {
+          return existingSettings.documents[0].settings?.notificationEmail || 'aileen@mandarintutorhk.com';
+        }
+        
+        return 'aileen@mandarintutorhk.com'; // default
+      } catch (error) {
+        log(`Error getting admin settings, using default email: ${error.message}`);
+        return 'aileen@mandarintutorhk.com'; // fallback to default
+      }
+    };
     
     // --- Payload Parsing ---
     log("Attempting to parse request body...");
@@ -89,9 +112,14 @@ module.exports = async ({ req, res, log, error: logError }) => {
           log
         );
         
+        // Get admin notification email from settings
+        const adminEmail = await getAdminNotificationEmail();
+        log(`Using admin notification email: ${adminEmail}`);
+        
         // Send notification email to admin
         const adminEmailResult = await sendAdminNotificationEmail(
           mg,
+          adminEmail, // Use dynamic admin email
           data.userName,
           data.userEmail,
           data.userPhone,
@@ -107,6 +135,7 @@ module.exports = async ({ req, res, log, error: logError }) => {
           success: true,
           userEmailResult,
           adminEmailResult,
+          adminEmail, // Include in response for debugging
           action: 'sendClassJoinConfirmation'
         }, log, logError);
         
@@ -321,9 +350,9 @@ The Mandarin Tutor HK Team`;
 }
 
 // Send notification email to admin
-async function sendAdminNotificationEmail(mg, userName, userEmail, userPhone, classType, day, time, currentEnrollment, totalSpots, log) {
+async function sendAdminNotificationEmail(mg, adminEmail, userName, userEmail, userPhone, classType, day, time, currentEnrollment, totalSpots, log) {
   try {
-    log(`Sending admin notification email for new enrollment: ${userName}`);
+    log(`Sending admin notification email to: ${adminEmail} for new enrollment: ${userName}`);
     
     const subject = `🎉 New student enrolled: ${userName} joined ${classType.charAt(0).toUpperCase() + classType.slice(1)} class (${day} ${time})`;
     
@@ -331,7 +360,7 @@ async function sendAdminNotificationEmail(mg, userName, userEmail, userPhone, cl
     
     const htmlContent = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2>Hi Aileen,</h2>
+        <h2>Hi there,</h2>
         
         <p>A new student has just enrolled in one of your classes!</p>
         
@@ -367,12 +396,13 @@ async function sendAdminNotificationEmail(mg, userName, userEmail, userPhone, cl
         </div>
         
         <p style="color: #666; font-size: 14px; margin-top: 30px;">
-          This notification was sent automatically when a student joined a class.
+          This notification was sent automatically when a student joined a class.<br>
+          <em>You can change this notification email address in your admin settings.</em>
         </p>
       </div>
     `;
 
-    const textContent = `Hi Aileen,
+    const textContent = `Hi there,
 
 A new student has just enrolled in one of your classes!
 
@@ -392,17 +422,18 @@ ${isClassFull ? '💡 Class Status:\nThis class is now full!' : ''}
 🔗 Quick Actions:
 • View class details in admin dashboard
 
-This notification was sent automatically when a student joined a class.`;
+This notification was sent automatically when a student joined a class.
+You can change this notification email address in your admin settings.`;
 
     const data = await mg.messages.create("mandarintutorhk.com", {
       from: "Mandarin Tutor HK <postmaster@mandarintutorhk.com>",
-      to: ["aileen@mandarintutorhk.com"],
+      to: [adminEmail],
       subject: subject,
       text: textContent,
       html: htmlContent
     });
     
-    log(`Admin notification email sent successfully`);
+    log(`Admin notification email sent successfully to ${adminEmail}`);
     return { success: true, data };
   } catch (error) {
     log(`Error sending admin notification email: ${error.message}`);

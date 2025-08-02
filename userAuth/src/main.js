@@ -1,5 +1,5 @@
 // userAuth.js
-import { Client, Account, Users } from 'node-appwrite';
+import { Client, Account, Users, Databases, Query, ID } from 'node-appwrite';
 
 // Helper function to log and send JSON response
 const sendJsonResponse = (res, statusCode, data, log, logError) => {
@@ -23,6 +23,8 @@ export default async ({ req, res, log, error: logError }) => {
     log("Attempting to initialize Appwrite client...");
     const projectId = process.env.APPWRITE_FUNCTION_PROJECT_ID;
     const apiKey = process.env.APPWRITE_API_KEY;
+    const databaseId = process.env.DATABASE_ID;
+    const adminSettingsCollectionId = process.env.ADMIN_SETTINGS_COLLECTION_ID || 'admin_settings';
     const appwriteEndpoint = process.env.APPWRITE_ENDPOINT || 'https://cloud.appwrite.io/v1';
 
     if (!projectId) {
@@ -42,6 +44,7 @@ export default async ({ req, res, log, error: logError }) => {
 
     const users = new Users(client);
     const account = new Account(client);
+    const databases = new Databases(client);
     
     // --- Payload Parsing ---
     log("Attempting to parse request body...");
@@ -161,6 +164,99 @@ export default async ({ req, res, log, error: logError }) => {
           totalMembers: memberDetails.length,
           action: 'getUsersByClass'
         }, log, logError);
+
+      case 'getAdminSettings':
+        log(`Executing action: getAdminSettings`);
+        try {
+          // Try to get existing admin settings
+          const existingSettings = await databases.listDocuments(
+            databaseId,
+            adminSettingsCollectionId,
+            [Query.limit(1)]
+          );
+          
+          let settings = {
+            notificationEmail: 'aileen@mandarintutorhk.com' // default
+          };
+          
+          if (existingSettings.documents.length > 0) {
+            settings = existingSettings.documents[0].settings || settings;
+          }
+          
+          log(`Admin settings retrieved: ${JSON.stringify(settings)}`);
+          return sendJsonResponse(res, 200, {
+            success: true,
+            settings: settings,
+            action: 'getAdminSettings'
+          }, log, logError);
+        } catch (error) {
+          // If collection doesn't exist or other error, return defaults
+          log(`Error getting admin settings, returning defaults: ${error.message}`);
+          return sendJsonResponse(res, 200, {
+            success: true,
+            settings: {
+              notificationEmail: 'aileen@mandarintutorhk.com'
+            },
+            action: 'getAdminSettings'
+          }, log, logError);
+        }
+
+      case 'updateAdminSettings':
+        log(`Executing action: updateAdminSettings with settings: ${JSON.stringify(data.settings)}`);
+        try {
+          // Validate email format
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          if (!data.settings.notificationEmail || !emailRegex.test(data.settings.notificationEmail)) {
+            throw new Error('Invalid email address format');
+          }
+
+          // Try to get existing settings document
+          const existingSettings = await databases.listDocuments(
+            databaseId,
+            adminSettingsCollectionId,
+            [Query.limit(1)]
+          );
+          
+          let settingsDoc;
+          if (existingSettings.documents.length > 0) {
+            // Update existing document
+            settingsDoc = await databases.updateDocument(
+              databaseId,
+              adminSettingsCollectionId,
+              existingSettings.documents[0].$id,
+              {
+                settings: data.settings,
+                updatedAt: new Date().toISOString()
+              }
+            );
+          } else {
+            // Create new document
+            settingsDoc = await databases.createDocument(
+              databaseId,
+              adminSettingsCollectionId,
+              ID.unique(),
+              {
+                settings: data.settings,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+              }
+            );
+          }
+          
+          log(`Admin settings updated successfully`);
+          return sendJsonResponse(res, 200, {
+            success: true,
+            settings: data.settings,
+            action: 'updateAdminSettings'
+          }, log, logError);
+        } catch (error) {
+          logError(`Error updating admin settings: ${error.message}`);
+          return sendJsonResponse(res, 400, {
+            success: false,
+            message: error.message || 'Failed to update admin settings',
+            action: 'updateAdminSettings'
+          }, log, logError);
+        }
         
       default:
         log(`Warning: Invalid action received: ${action}`);
