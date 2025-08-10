@@ -26,6 +26,7 @@ module.exports = async ({ req, res, log, error: logError }) => {
     const apiKey = process.env.APPWRITE_API_KEY;
     const databaseId = process.env.DATABASE_ID;
     const classesCollectionId = process.env.CLASSES_COLLECTION_ID;
+    const classTypesCollectionId = process.env.CLASS_TYPES_COLLECTION_ID;
     const notificationsFunctionId = process.env.NOTIFICATIONS_FUNCTION_ID || '68274a3f0031c188ee43';
     const appwriteEndpoint = process.env.APPWRITE_ENDPOINT || 'https://cloud.appwrite.io/v1';
 
@@ -44,6 +45,10 @@ module.exports = async ({ req, res, log, error: logError }) => {
     if (!classesCollectionId) {
         logError("Configuration Error: CLASSES_COLLECTION_ID environment variable not set.");
         throw new Error("CLASSES_COLLECTION_ID environment variable not set.");
+    }
+    if (!classTypesCollectionId) {
+        logError("Configuration Error: CLASS_TYPES_COLLECTION_ID environment variable not set.");
+        throw new Error("CLASS_TYPES_COLLECTION_ID environment variable not set.");
     }
 
     client = new Client()
@@ -75,18 +80,65 @@ module.exports = async ({ req, res, log, error: logError }) => {
     switch (action) {
       case 'getAvailableClasses':
         log(`Executing action: getAvailableClasses with type: ${data.classType}`);
+        
+        // Get classes and their class type information
+        const classesQuery = [Query.equal('status', 'active')];
+        
+        // If classType is provided, filter by it (for backward compatibility with existing API calls)
+        if (data.classType) {
+          // First get class types that match the old type system
+          const matchingClassTypes = await databases.listDocuments(
+            databaseId,
+            classTypesCollectionId,
+            [
+              Query.equal('category', data.classType),
+              Query.equal('isActive', true)
+            ]
+          );
+          
+          if (matchingClassTypes.documents.length > 0) {
+            const classTypeIds = matchingClassTypes.documents.map(ct => ct.$id);
+            classesQuery.push(Query.equal('classTypeId', classTypeIds));
+          }
+        }
+        
         const classes = await databases.listDocuments(
           databaseId,
           classesCollectionId,
-          [
-            Query.equal('type', data.classType),
-            Query.equal('status', 'active'),
-          ]
+          classesQuery
         );
-        log(`Found ${classes.documents.length} available classes.`);
+        
+        // Enrich classes with class type information
+        const enrichedClasses = await Promise.all(
+          classes.documents.map(async (classDoc) => {
+            try {
+              const classType = await databases.getDocument(
+                databaseId,
+                classTypesCollectionId,
+                classDoc.classTypeId
+              );
+              return {
+                ...classDoc,
+                classTypeName: classType.name,
+                classTypeCategory: classType.category,
+                type: classType.category || 'general' // For frontend compatibility
+              };
+            } catch (err) {
+              logError(`Error fetching class type for class ${classDoc.$id}: ${err.message}`);
+              return {
+                ...classDoc,
+                classTypeName: 'Unknown Class Type',
+                classTypeCategory: 'general',
+                type: 'general'
+              };
+            }
+          })
+        );
+        
+        log(`Found ${enrichedClasses.length} available classes.`);
         return sendJsonResponse(res, 200, {
           success: true,
-          classes: classes.documents,
+          classes: enrichedClasses,
           action: 'getAvailableClasses'
         }, log, logError);
 
@@ -96,9 +148,18 @@ module.exports = async ({ req, res, log, error: logError }) => {
         // Build query filters
         const queries = [];
         
-        // Filter by class type if specified
+        // Filter by class type category if specified
         if (data.classType && data.classType !== 'all') {
-          queries.push(Query.equal('type', data.classType));
+          const matchingClassTypes = await databases.listDocuments(
+            databaseId,
+            classTypesCollectionId,
+            [Query.equal('category', data.classType)]
+          );
+          
+          if (matchingClassTypes.documents.length > 0) {
+            const classTypeIds = matchingClassTypes.documents.map(ct => ct.$id);
+            queries.push(Query.equal('classTypeId', classTypeIds));
+          }
         }
         
         // Filter by status if specified
@@ -121,20 +182,36 @@ module.exports = async ({ req, res, log, error: logError }) => {
           queries
         );
         
-        // Calculate enrollment info for each class
-        const classesWithStats = allClasses.documents.map(classDoc => {
-          const totalSpots = classDoc.totalSpots || 0;
-          const currentMembers = Array.isArray(classDoc.members) ? classDoc.members.length : 0;
-          const spotsLeft = totalSpots - currentMembers;
-          const fillRate = totalSpots > 0 ? (currentMembers / totalSpots) * 100 : 0;
-          
-          return {
-            ...classDoc,
-            currentMembers,
-            spotsLeft,
-            fillRate: Math.round(fillRate)
-          };
-        });
+        // Enrich classes with stats and class type info
+        const classesWithStats = await Promise.all(
+          allClasses.documents.map(async (classDoc) => {
+            const totalSpots = classDoc.totalSpots || 0;
+            const currentMembers = Array.isArray(classDoc.members) ? classDoc.members.length : 0;
+            const spotsLeft = totalSpots - currentMembers;
+            const fillRate = totalSpots > 0 ? (currentMembers / totalSpots) * 100 : 0;
+            
+            // Get class type info
+            let classTypeName = 'Unknown Class Type';
+            try {
+              const classType = await databases.getDocument(
+                databaseId,
+                classTypesCollectionId,
+                classDoc.classTypeId
+              );
+              classTypeName = classType.name;
+            } catch (err) {
+              logError(`Error fetching class type for class ${classDoc.$id}: ${err.message}`);
+            }
+            
+            return {
+              ...classDoc,
+              currentMembers,
+              spotsLeft,
+              fillRate: Math.round(fillRate),
+              classTypeName
+            };
+          })
+        );
         
         log(`Found ${allClasses.documents.length} classes for admin view.`);
         return sendJsonResponse(res, 200, {
@@ -193,6 +270,23 @@ module.exports = async ({ req, res, log, error: logError }) => {
           classesCollectionId,
           data.classId
         );
+        
+        // Enrich with class type info
+        try {
+          const classType = await databases.getDocument(
+            databaseId,
+            classTypesCollectionId,
+            classDetails.classTypeId
+          );
+          classDetails.classTypeName = classType.name;
+          classDetails.classTypeCategory = classType.category;
+          classDetails.type = classType.category || 'general'; // For compatibility
+        } catch (err) {
+          logError(`Error fetching class type: ${err.message}`);
+          classDetails.classTypeName = 'Unknown Class Type';
+          classDetails.type = 'general';
+        }
+        
         log("Class details fetched successfully.");
         return sendJsonResponse(res, 200, {
           success: true,
@@ -265,6 +359,19 @@ module.exports = async ({ req, res, log, error: logError }) => {
         
         log("User successfully joined class. Sending email notifications...");
         
+        // Get class type for email
+        let classTypeName = 'Class';
+        try {
+          const classType = await databases.getDocument(
+            databaseId,
+            classTypesCollectionId,
+            classDoc.classTypeId
+          );
+          classTypeName = classType.name;
+        } catch (err) {
+          logError(`Error fetching class type for notification: ${err.message}`);
+        }
+        
         // Send email notifications
         try {
           const emailData = {
@@ -272,7 +379,7 @@ module.exports = async ({ req, res, log, error: logError }) => {
             userName: data.name,
             userEmail: data.email,
             userPhone: data.phone,
-            classType: classDoc.type,
+            classType: classTypeName,
             day: classDoc.day,
             time: classDoc.time,
             currentEnrollment: newMembersCount,
@@ -360,7 +467,7 @@ module.exports = async ({ req, res, log, error: logError }) => {
         
         if (data.day) updateData.day = data.day;
         if (data.time) updateData.time = data.time;
-        if (data.type) updateData.type = data.type;
+        if (data.classTypeId) updateData.classTypeId = data.classTypeId;
         if (data.totalSpots !== undefined) {
           updateData.totalSpots = data.totalSpots;
           // Recalculate spots left
@@ -445,8 +552,19 @@ module.exports = async ({ req, res, log, error: logError }) => {
         const spots = data.totalSpots || 5;
         const initialMembersCount = data.initialMembers?.length || 0;
 
-        if (typeof data.classType !== 'string' || !data.classType) {
-            throw new Error("classType is required and must be a string for creating a class.");
+        if (!data.classTypeId) {
+            throw new Error("classTypeId is required for creating a class.");
+        }
+
+        // Verify the class type exists
+        try {
+          await databases.getDocument(
+            databaseId,
+            classTypesCollectionId,
+            data.classTypeId
+          );
+        } catch (err) {
+          throw new Error("Invalid classTypeId: Class type not found.");
         }
 
         const newClass = await databases.createDocument(
@@ -454,7 +572,7 @@ module.exports = async ({ req, res, log, error: logError }) => {
           classesCollectionId,
           ID.unique(),
           {
-            type: data.classType,
+            classTypeId: data.classTypeId,
             day: data.day,
             time: data.time,
             members: data.initialMembers || [],
@@ -468,6 +586,128 @@ module.exports = async ({ req, res, log, error: logError }) => {
           success: true,
           classId: newClass.$id,
           action: 'createClass'
+        }, log, logError);
+
+      // Class type management actions
+      case 'getClassTypes':
+        log(`Executing action: getClassTypes`);
+        const classTypes = await databases.listDocuments(
+          databaseId,
+          classTypesCollectionId,
+          [
+            Query.equal('isActive', true),
+            Query.orderAsc('name')
+          ]
+        );
+        log(`Found ${classTypes.documents.length} active class types.`);
+        return sendJsonResponse(res, 200, {
+          success: true,
+          classTypes: classTypes.documents,
+          action: 'getClassTypes'
+        }, log, logError);
+
+      case 'getAllClassTypes':
+        log(`Executing action: getAllClassTypes for admin`);
+        const allClassTypes = await databases.listDocuments(
+          databaseId,
+          classTypesCollectionId,
+          [Query.orderAsc('name')]
+        );
+        
+        // Add usage count to each class type
+        const classTypesWithUsage = await Promise.all(
+          allClassTypes.documents.map(async (classType) => {
+            const usageCount = await databases.listDocuments(
+              databaseId,
+              classesCollectionId,
+              [Query.equal('classTypeId', classType.$id)]
+            );
+            return {
+              ...classType,
+              usageCount: usageCount.total
+            };
+          })
+        );
+        
+        log(`Found ${allClassTypes.documents.length} class types for admin view.`);
+        return sendJsonResponse(res, 200, {
+          success: true,
+          classTypes: classTypesWithUsage,
+          action: 'getAllClassTypes'
+        }, log, logError);
+
+      case 'createClassType':
+        log(`Executing action: createClassType with data: ${JSON.stringify(data)}`);
+        const newClassType = await databases.createDocument(
+          databaseId,
+          classTypesCollectionId,
+          ID.unique(),
+          {
+            name: data.name,
+            category: data.category || '',
+            description: data.description || '',
+            isActive: true
+          }
+        );
+        log(`New class type created with ID: ${newClassType.$id}`);
+        return sendJsonResponse(res, 201, {
+          success: true,
+          classType: newClassType,
+          action: 'createClassType'
+        }, log, logError);
+
+      case 'updateClassType':
+        log(`Executing action: updateClassType for classTypeId: ${data.classTypeId}`);
+        const updateClassTypeData = {};
+        if (data.name) updateClassTypeData.name = data.name;
+        if (data.category !== undefined) updateClassTypeData.category = data.category;
+        if (data.description !== undefined) updateClassTypeData.description = data.description;
+        if (data.isActive !== undefined) updateClassTypeData.isActive = data.isActive;
+        
+        const updatedClassType = await databases.updateDocument(
+          databaseId,
+          classTypesCollectionId,
+          data.classTypeId,
+          updateClassTypeData
+        );
+        
+        log(`Class type ${data.classTypeId} updated successfully`);
+        return sendJsonResponse(res, 200, {
+          success: true,
+          classType: updatedClassType,
+          action: 'updateClassType'
+        }, log, logError);
+
+      case 'deleteClassType':
+        log(`Executing action: deleteClassType for classTypeId: ${data.classTypeId}`);
+        
+        // Check if any classes are using this class type
+        const classesUsingType = await databases.listDocuments(
+          databaseId,
+          classesCollectionId,
+          [Query.equal('classTypeId', data.classTypeId)]
+        );
+        
+        if (classesUsingType.total > 0) {
+          log(`Cannot delete class type ${data.classTypeId}: ${classesUsingType.total} classes are using it`);
+          return sendJsonResponse(res, 400, {
+            success: false,
+            message: `Cannot delete class type. ${classesUsingType.total} classes are still using it.`,
+            action: 'deleteClassType'
+          }, log, logError);
+        }
+        
+        await databases.deleteDocument(
+          databaseId,
+          classTypesCollectionId,
+          data.classTypeId
+        );
+        
+        log(`Class type ${data.classTypeId} deleted successfully`);
+        return sendJsonResponse(res, 200, {
+          success: true,
+          message: 'Class type deleted successfully',
+          action: 'deleteClassType'
         }, log, logError);
       
       default:
