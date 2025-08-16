@@ -79,19 +79,13 @@ module.exports = async ({ req, res, log, error: logError }) => {
     
     switch (action) {
       case 'getAvailableClasses':
-        log(`Executing action: getAvailableClasses with type: ${data.classType}`);
-        
-        // Get classes and their class type information
-        const classesQuery = [Query.equal('status', 'active')];
-        
-        // If classType is provided, filter by it (for backward compatibility with existing API calls)
-        if (data.classType) {
-          // First get class types that match the old type system
+        if (data.classType && data.classType !== 'all') {
           const matchingClassTypes = await databases.listDocuments(
             databaseId,
             classTypesCollectionId,
             [
-              Query.equal('category', data.classType),
+              // Use Query.search or Query.contains to match within comma-separated values
+              Query.contains('category', data.classType),
               Query.equal('isActive', true)
             ]
           );
