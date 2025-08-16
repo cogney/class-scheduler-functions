@@ -79,20 +79,37 @@ module.exports = async ({ req, res, log, error: logError }) => {
     
     switch (action) {
       case 'getAvailableClasses':
+        log(`Executing action: getAvailableClasses with type: ${data.classType}`);
+        
+        // Initialize the query array
+        let classesQuery = [Query.equal('status', 'active')];
+        
+        // If classType is provided and not 'all', filter by it
         if (data.classType && data.classType !== 'all') {
-          const matchingClassTypes = await databases.listDocuments(
+          // Get all active class types
+          const allClassTypes = await databases.listDocuments(
             databaseId,
             classTypesCollectionId,
-            [
-              // Use Query.search or Query.contains to match within comma-separated values
-              Query.contains('category', data.classType),
-              Query.equal('isActive', true)
-            ]
+            [Query.equal('isActive', true)]
           );
           
-          if (matchingClassTypes.documents.length > 0) {
-            const classTypeIds = matchingClassTypes.documents.map(ct => ct.$id);
+          // Filter class types that contain the category (JavaScript filtering)
+          const matchingClassTypes = allClassTypes.documents.filter(ct => {
+            const categories = (ct.category || '').split(',').map(cat => cat.trim());
+            return categories.includes(data.classType);
+          });
+          
+          if (matchingClassTypes.length > 0) {
+            const classTypeIds = matchingClassTypes.map(ct => ct.$id);
             classesQuery.push(Query.equal('classTypeId', classTypeIds));
+          } else {
+            // No matching class types found, return empty array
+            log(`No class types found for category: ${data.classType}`);
+            return sendJsonResponse(res, 200, {
+              success: true,
+              classes: [],
+              action: 'getAvailableClasses'
+            }, log, logError);
           }
         }
         
